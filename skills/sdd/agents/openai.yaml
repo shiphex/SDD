@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD：规范驱动开发"
+  short_description: "核实现状，以规范推进可验证增量并同步设计、实现与证据"
+  default_prompt: "使用 $sdd 核实当前状态与目标的差距，并在我的授权范围内推进下一项可验证增量。"
