@@ -1,6 +1,6 @@
 # 03 Runtime：运行流程、状态与生命周期
 
-> SDD 系列第 3 篇｜上一篇：[02 Architecture](02_Architecture_边界职责与所有权.md)｜下一篇：[04 Contracts](04_Contracts_模块交互规则.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[03 Runtime 模板](templates/03-runtime模板.md)
+> SDD 系列第 3 篇｜上一篇：[02 Architecture](02_Architecture_边界职责与所有权.md)｜下一篇：[04 Contracts](04_Contracts_模块交互规则.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[03 Runtime 模板](templates/03-runtime模板.md)
 
 静态结构只说明系统“有什么”。要约束真实运行行为，还需要把协作顺序、状态变化、生命周期和外部提交点写出来，让成功路径与失败分支都能被检查。
 
@@ -213,4 +213,4 @@
 
 ---
 
-系列导航：上一篇：[02 Architecture：边界、职责与所有权](02_Architecture_边界职责与所有权.md)｜下一篇：[04 Contracts：模块交互规则](04_Contracts_模块交互规则.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[02 Architecture：边界、职责与所有权](02_Architecture_边界职责与所有权.md)｜下一篇：[04 Contracts：模块交互规则](04_Contracts_模块交互规则.md)｜[返回总览](../SDD学习实战笔记.md)

@@ -1,6 +1,6 @@
 # 09 Feedback、Human Review 与思维内化
 
-> SDD 系列第 9 篇｜上一篇：[08 Tasks](08_Tasks_从差距到可验证增量.md)｜下一篇：[回到总览](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[Human Review 模板](templates/Human_Review模板.md)与 [Learning Review Card](templates/Learning_Review_Card模板.md)
+> SDD 系列第 9 篇｜上一篇：[08 Tasks](08_Tasks_从差距到可验证增量.md)｜下一篇：[回到总览](../SDD学习实战笔记.md)｜配套：[Human Review 模板](templates/Human_Review模板.md)与 [Learning Review Card](templates/Learning_Review_Card模板.md)
 
 实现完成后，规格链仍会接收新证据。证据可能改变当前事实，也可能推翻已接受设计；人工评审要把变化送回负责该信息的位置，并把反复出现的判断盲点沉淀为下一次可复用的问题。
 
@@ -175,7 +175,7 @@ AI 在这个循环中提供审查压力和候选解释，不自动成为事实�
 | --- | --- | --- |
 | 事实错误 | 没查现状，把旧文档当现实 | `01/08` 的事实与证据 |
 | 覆盖遗漏 | 漏掉角色、状态、失败或质量属性 | 对应的 `01–07` 问题清单 |
-| 层级错误 | 把目标、架构、契约和代码混在一起 | [总览博客的文档地图](../04_小白如何用SDD与AI开发软件_博客.md) |
+| 层级错误 | 把目标、架构、契约和代码混在一起 | [总览笔记的文档地图](../SDD学习实战笔记.md) |
 | 边界错误 | 没识别 owner、生命周期或依赖方向 | `02–04` |
 | 取舍错误 | 只有推荐方案，没有代价和回退 | `06` |
 | 任务错误 | 没从 Gap 推导最小增量 | `08` |
@@ -280,8 +280,8 @@ AI 的每条建议都复制进知识库，会把工具输出堆成新的噪声�
 - [Learning Review Card 模板](templates/Learning_Review_Card模板.md)
 - [06 Decisions](06_Decisions_设计取舍与决策记录.md)
 - [08 Tasks](08_Tasks_从差距到可验证增量.md)
-- [总览：小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)
+- [总览：SDD 学习实战笔记](../SDD学习实战笔记.md)
 
 ---
 
-系列导航：上一篇：[08 Tasks：从差距到可验证增量](08_Tasks_从差距到可验证增量.md)｜下一篇：[回到总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[08 Tasks：从差距到可验证增量](08_Tasks_从差距到可验证增量.md)｜下一篇：[回到总览](../SDD学习实战笔记.md)

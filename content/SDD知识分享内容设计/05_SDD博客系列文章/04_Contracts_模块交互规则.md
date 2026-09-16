@@ -1,6 +1,6 @@
 # 04 Contracts：模块交互规则
 
-> SDD 系列第 4 篇｜上一篇：[03 Runtime](03_Runtime_运行流程状态与生命周期.md)｜下一篇：[05 Failures](05_Failures_失败语义与恢复责任.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[04 Contracts 模板](templates/04-contracts模板.md)
+> SDD 系列第 4 篇｜上一篇：[03 Runtime](03_Runtime_运行流程状态与生命周期.md)｜下一篇：[05 Failures](05_Failures_失败语义与恢复责任.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[04 Contracts 模板](templates/04-contracts模板.md)
 
 函数签名只能说明“怎样调用”，不能完整说明“调用方可以依赖什么”。本文把输入输出、状态效果、失败、并发、取消和兼容要求收敛为跨边界契约。
 
@@ -231,4 +231,4 @@ reserve_session(command) -> ReservationResult
 
 ---
 
-系列导航：上一篇：[03 Runtime：运行流程、状态与生命周期](03_Runtime_运行流程状态与生命周期.md)｜下一篇：[05 Failures：失败语义与恢复责任](05_Failures_失败语义与恢复责任.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[03 Runtime：运行流程、状态与生命周期](03_Runtime_运行流程状态与生命周期.md)｜下一篇：[05 Failures：失败语义与恢复责任](05_Failures_失败语义与恢复责任.md)｜[返回总览](../SDD学习实战笔记.md)

@@ -1,6 +1,6 @@
 # 07 Test Plan：验证设计与完成条件
 
-> SDD 系列第 7 篇｜上一篇：[06 Decisions](06_Decisions_设计取舍与决策记录.md)｜下一篇：[08 Tasks](08_Tasks_从差距到可验证增量.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[07 Test Plan 模板](templates/07-test-plan模板.md)
+> SDD 系列第 7 篇｜上一篇：[06 Decisions](06_Decisions_设计取舍与决策记录.md)｜下一篇：[08 Tasks](08_Tasks_从差距到可验证增量.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[07 Test Plan 模板](templates/07-test-plan模板.md)
 
 测试计划把目标、契约、状态、失败和架构约束转换成能够区分正确与错误实现的证据要求。具体命令应服从这些要求。
 
@@ -218,4 +218,4 @@ Task 或阶段完成前至少检查：
 
 ---
 
-系列导航：上一篇：[06 Decisions：设计取舍与决策记录](06_Decisions_设计取舍与决策记录.md)｜下一篇：[08 Tasks：从差距到可验证增量](08_Tasks_从差距到可验证增量.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[06 Decisions：设计取舍与决策记录](06_Decisions_设计取舍与决策记录.md)｜下一篇：[08 Tasks：从差距到可验证增量](08_Tasks_从差距到可验证增量.md)｜[返回总览](../SDD学习实战笔记.md)

@@ -1,6 +1,6 @@
 # 06 Decisions：设计取舍与决策记录
 
-> SDD 系列第 6 篇｜上一篇：[05 Failures](05_Failures_失败语义与恢复责任.md)｜下一篇：[07 Test Plan](07_Test_Plan_验证设计与完成条件.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[06 Decisions 模板](templates/06-decisions模板.md)
+> SDD 系列第 6 篇｜上一篇：[05 Failures](05_Failures_失败语义与恢复责任.md)｜下一篇：[07 Test Plan](07_Test_Plan_验证设计与完成条件.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[06 Decisions 模板](templates/06-decisions模板.md)
 
 当多个方案都能工作时，设计需要保存选择依据、主动接受的代价和重审条件。决定可能在任何阶段出现，无须等到“第六步”。
 
@@ -225,4 +225,4 @@ mini-ATAM 是对 [SEI Architecture Tradeoff Analysis Method](https://www.sei.cmu
 
 ---
 
-系列导航：上一篇：[05 Failures：失败语义与恢复责任](05_Failures_失败语义与恢复责任.md)｜下一篇：[07 Test Plan：验证设计与完成条件](07_Test_Plan_验证设计与完成条件.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[05 Failures：失败语义与恢复责任](05_Failures_失败语义与恢复责任.md)｜下一篇：[07 Test Plan：验证设计与完成条件](07_Test_Plan_验证设计与完成条件.md)｜[返回总览](../SDD学习实战笔记.md)

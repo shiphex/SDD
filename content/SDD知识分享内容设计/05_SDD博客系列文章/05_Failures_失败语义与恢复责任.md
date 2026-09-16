@@ -1,6 +1,6 @@
 # 05 Failures：失败语义与恢复责任
 
-> SDD 系列第 5 篇｜上一篇：[04 Contracts](04_Contracts_模块交互规则.md)｜下一篇：[06 Decisions](06_Decisions_设计取舍与决策记录.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[05 Failures 模板](templates/05-failures模板.md)
+> SDD 系列第 5 篇｜上一篇：[04 Contracts](04_Contracts_模块交互规则.md)｜下一篇：[06 Decisions](06_Decisions_设计取舍与决策记录.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[05 Failures 模板](templates/05-failures模板.md)
 
 失败处理需要明确谁发现、谁恢复、能否重试，以及操作结束后系统与外部世界各自处于什么状态。多加几层代码捕获无法代替这些设计。
 
@@ -217,4 +217,4 @@ Policy 由推荐默认和项目决定共同组成，其适用性受具体场景�
 
 ---
 
-系列导航：上一篇：[04 Contracts：模块交互规则](04_Contracts_模块交互规则.md)｜下一篇：[06 Decisions：设计取舍与决策记录](06_Decisions_设计取舍与决策记录.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[04 Contracts：模块交互规则](04_Contracts_模块交互规则.md)｜下一篇：[06 Decisions：设计取舍与决策记录](06_Decisions_设计取舍与决策记录.md)｜[返回总览](../SDD学习实战笔记.md)

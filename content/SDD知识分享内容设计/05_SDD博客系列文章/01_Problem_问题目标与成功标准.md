@@ -1,6 +1,6 @@
 # 01 Problem：问题、目标与成功标准
 
-> SDD 系列第 1 篇｜上一篇：[总览：小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜下一篇：[02 Architecture](02_Architecture_边界职责与所有权.md)｜配套：[01 Problem 模板](templates/01-problem模板.md)
+> SDD 系列第 1 篇｜上一篇：[总览：SDD 学习实战笔记](../SDD学习实战笔记.md)｜下一篇：[02 Architecture](02_Architecture_边界职责与所有权.md)｜配套：[01 Problem 模板](templates/01-problem模板.md)
 
 很多开发任务从“要做什么功能”开始，却没有先说明问题是否真实、结果怎样观察、哪些相邻需求不在本次范围。本文从这几个最早也最容易被跳过的判断开始。
 
@@ -221,4 +221,4 @@ Goal 变化会影响整条规格链。需要检查边界、流程、契约、失
 
 ---
 
-系列导航：上一篇：[总览](../04_小白如何用SDD与AI开发软件_博客.md)｜下一篇：[02 Architecture：边界、职责与所有权](02_Architecture_边界职责与所有权.md)
+系列导航：上一篇：[总览](../SDD学习实战笔记.md)｜下一篇：[02 Architecture：边界、职责与所有权](02_Architecture_边界职责与所有权.md)

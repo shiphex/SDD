@@ -1,6 +1,6 @@
 # 08 Tasks：从差距到可验证增量
 
-> SDD 系列第 8 篇｜上一篇：[07 Test Plan](07_Test_Plan_验证设计与完成条件.md)｜下一篇：[09 Feedback](09_Feedback_Human_Review与思维内化.md)｜总览：[小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)｜配套：[08 Tasks 模板](templates/08-tasks模板.md)
+> SDD 系列第 8 篇｜上一篇：[07 Test Plan](07_Test_Plan_验证设计与完成条件.md)｜下一篇：[09 Feedback](09_Feedback_Human_Review与思维内化.md)｜总览：[SDD 学习实战笔记](../SDD学习实战笔记.md)｜配套：[08 Tasks 模板](templates/08-tasks模板.md)
 
 规格描述目标状态。实施还需要回答“从当前事实出发，下一项最小而完整的变化是什么”。本文把差距、纵向切片、实施范围和完成证据连接起来。
 
@@ -293,9 +293,9 @@ Task 只有同时满足以下条件才是 Done：
 - [01 Problem](01_Problem_问题目标与成功标准.md)
 - [07 Test Plan](07_Test_Plan_验证设计与完成条件.md)
 - [09 Feedback、Human Review 与思维内化](09_Feedback_Human_Review与思维内化.md)
-- [总览：小白如何用 SDD 与 AI 开发软件](../04_小白如何用SDD与AI开发软件_博客.md)
+- [总览：SDD 学习实战笔记](../SDD学习实战笔记.md)
 - [GitHub Spec Kit](https://github.com/github/spec-kit)
 
 ---
 
-系列导航：上一篇：[07 Test Plan：验证设计与完成条件](07_Test_Plan_验证设计与完成条件.md)｜下一篇：[09 Feedback、Human Review 与思维内化](09_Feedback_Human_Review与思维内化.md)｜[返回总览](../04_小白如何用SDD与AI开发软件_博客.md)
+系列导航：上一篇：[07 Test Plan：验证设计与完成条件](07_Test_Plan_验证设计与完成条件.md)｜下一篇：[09 Feedback、Human Review 与思维内化](09_Feedback_Human_Review与思维内化.md)｜[返回总览](../SDD学习实战笔记.md)
