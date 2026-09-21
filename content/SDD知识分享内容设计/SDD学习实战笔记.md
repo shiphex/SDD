@@ -54,7 +54,7 @@ Problem → Requirements → Architecture → Runtime → Contracts
 整条流程可以压缩成一条主线:
 
 ```
-Intent → Specification → Design → Verification → Implementation
+Intent → Specification → Design → tasks → Implementation → Verification
 ```
 
 这条主线展开为七项可以回退的活动：
