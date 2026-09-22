@@ -1,0 +1,13 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Microsoft YaHei UI, Noto Sans CJK SC, sans-serif", "primaryColor": "#dbe7ff", "primaryTextColor": "#1f2937", "primaryBorderColor": "#1d4ed8", "lineColor": "#5f6b7a", "secondaryColor": "#f7f3ea"}, "flowchart": {"curve": "linear", "nodeSpacing": 35, "rankSpacing": 32}}}%%
+flowchart LR
+  SC[SC<br/>成功标准] --> D[设计约束<br/>ARCH / ST / API / Failure / ADR]
+  D --> T[TEST<br/>证明方式]
+  T --> K[TASK<br/>受约束增量]
+  K --> E[Evidence<br/>实际结果]
+  E --> R[Review<br/>验收与变化裁决]
+  R -.接受的变化.-> D
+
+  classDef main fill:#dbe7ff,stroke:#1d4ed8,color:#1f2937,stroke-width:2px;
+  classDef review fill:#fffdf8,stroke:#173d9a,color:#173d9a,stroke-width:3px;
+  class SC,D,T,K,E main;
+  class R review;

@@ -1,0 +1,16 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Microsoft YaHei UI, Noto Sans CJK SC, sans-serif", "primaryColor": "#dbe7ff", "primaryTextColor": "#1f2937", "primaryBorderColor": "#1d4ed8", "lineColor": "#5f6b7a", "secondaryColor": "#fffdf8"}, "flowchart": {"curve": "linear", "nodeSpacing": 36, "rankSpacing": 38}}}%%
+flowchart LR
+  I[实施] --> E[新证据]
+  E --> C{已接受 Spec<br/>仍成立？}
+  C -- 是 --> V[继续验证]
+  C -- 否 --> H[09 人工评审<br/>裁决与路由]
+  H --> U[更新权威文档<br/>01-07]
+  U --> T[刷新 08 Task<br/>与验证]
+  T --> I
+  H -.需要更多证据.-> Q[调查]
+  Q --> E
+
+  classDef main fill:#dbe7ff,stroke:#1d4ed8,color:#1f2937,stroke-width:2px;
+  classDef decision fill:#fffdf8,stroke:#173d9a,color:#173d9a,stroke-width:3px;
+  class I,E,V,U,T,Q main;
+  class C,H decision;
