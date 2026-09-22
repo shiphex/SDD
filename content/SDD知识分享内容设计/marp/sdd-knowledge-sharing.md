@@ -11,11 +11,47 @@ author: SDD 知识分享
 <!-- _class: title -->
 <!-- _paginate: false -->
 
-# SDD 学习实战笔记
+# SDD 学习笔记
 
-## 模板结构与实战闭环
+## 经验与感悟分享
 
-<p class="meta">01–09 信息地图 · 从规格到证据</p>
+---
+
+# 什么是 SDD
+
+<p class="definition smaller-definition">SDD，即 Spec-Driven Development，规格驱动开发。</p>
+
+<div class="logic-steps compact">
+  <p><strong>编码前</strong><span>形成足够明确、可以验证的目标与设计约束</span></p>
+  <p><strong>实施时</strong><span>让规格约束代码、测试和迭代范围</span></p>
+  <p><strong>取得证据后</strong><span>判断实现是否符合预期，必要时修正规格或代码</span></p>
+</div>
+
+<p class="bottom-rule">文档深度随风险调整。局部变化可以简写，高风险边界需要更完整的设计。</p>
+
+---
+
+# AI 协作中的速度与发散
+
+<div class="columns split-50">
+  <div>
+    <h2>代码生成更快</h2>
+    <ul>
+      <li>样板代码和重复修改的成本下降</li>
+      <li>边界清楚的小范围需求可以快速实施</li>
+    </ul>
+  </div>
+  <div>
+    <h2>复杂系统更容易偏离</h2>
+    <ul>
+      <li>未经核实的前提进入实现</li>
+      <li>目标、状态和责任边界逐渐混乱</li>
+      <li>缺少证据时，无法判断是否完成</li>
+    </ul>
+  </div>
+</div>
+
+<p class="bottom-rule">生成速度提高后，错误方向也会更快进入代码。人的重点转向问题定义、约束设计、判断和核验。</p>
 
 ---
 
@@ -36,8 +72,6 @@ author: SDD 知识分享
 
 <!-- _class: dense -->
 
-# 01–05：目标与设计
-
 | 位置 | 唯一负责的内容 | 主要更新触发 |
 | --- | --- | --- |
 | 01 Problem | 为什么做，什么算成功 | 目标、范围、成功标准或问题基线变化 |
@@ -51,8 +85,6 @@ author: SDD 知识分享
 ---
 
 <!-- _class: dense -->
-
-# 06–09：决定、执行与反馈
 
 | 位置 | 唯一负责的内容 | 主要更新触发 |
 | --- | --- | --- |
