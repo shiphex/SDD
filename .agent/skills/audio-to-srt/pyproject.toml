@@ -1,0 +1,20 @@
+[project]
+name = "audio-to-srt-qwen"
+version = "0.2.0"
+description = "Local Qwen3-ASR and forced alignment pipeline for SRT output"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "qwen-asr==0.0.6",
+    "torch==2.10.0+cu128",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[tool.uv]
+index-strategy = "unsafe-best-match"

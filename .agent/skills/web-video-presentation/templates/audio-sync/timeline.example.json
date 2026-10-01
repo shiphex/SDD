@@ -1,0 +1,13 @@
+{
+  "audioSrc": "/audio/final.wav",
+  "scenes": [
+    {
+      "id": "fictional-intro",
+      "start": 0,
+      "end": 8.5,
+      "title": "虚构案例：先呈现问题",
+      "body": "用一句话说明示例中的用户遇到什么障碍。",
+      "visual": "画面提示：用独立构造的流程图呈现。"
+    }
+  ]
+}
