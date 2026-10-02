@@ -12,7 +12,7 @@ Run local Qwen3-ASR for recognition and Qwen3-ForcedAligner for character or wor
 
 - Python project and exact dependency versions: `pyproject.toml` and `uv.lock` in this skill directory.
 - Converter: `scripts/audio_to_srt.py`.
-- Windows entrypoint: `scripts/run-audio-to-srt.ps1`. It directs the UV environment, UV cache, and Hugging Face model cache into the ignored `.local/video/pilot` directory.
+- Windows entrypoint: `scripts/run-audio-to-srt.ps1`. By default it directs the UV environment, UV cache, and Hugging Face model cache into ignored `.local/video/pilot`. Set `$env:VIDEO_RUN_ID` to use another run directory.
 
 ## First run
 
@@ -27,6 +27,8 @@ From the repository root in PowerShell:
 ```
 
 The first invocation resolves the locked Python 3.12 environment and downloads the ASR and aligner weights into `.local/video/pilot/models/huggingface`. Keep these files local; do not commit recordings, transcripts, alignment JSON, or model weights.
+
+For a different workflow run, use `prepare-pilot.ps1 -RunId <run-id> -InputAudio <path>`; it stores that run's sample, UV environment, and model cache under `.local/video/<run-id>/`. For direct calls to the transcription wrapper, set `$env:VIDEO_RUN_ID` to the same run ID first. For tracks longer than 180.05 seconds, the CLI asks the workflow PowerShell helper to reconcile hashes and check that the input path and hash match the artifact allowed at the current stage. A longer sample export is permitted only in `sample_final_transcript` when it matches `sample-final-audio`; full source transcription requires `full_transcript` and the registered `source-audio`; final full-audio alignment requires `full_final_transcript` and `full-final-audio`.
 
 To regenerate the lock after intentionally changing dependencies, run `uv lock --project .agent/skills/audio-to-srt`. Normal setup uses `uv sync --project .agent/skills/audio-to-srt --locked` through the PowerShell entrypoint.
 
@@ -50,6 +52,23 @@ uv run --project .agent\skills\audio-to-srt --locked --python 3.12 `
   --max-chars 22
 ```
 - The JSON sidecar contains the recognized text and aligned items for review. Treat it as private source material.
+
+## Corrected transcript realignment
+
+After editing audio, first run ASR on the exported audio. The default output beside `final.srt` is `final.transcript.md`; it contains contiguous `音频段` sections, each no longer than 180 seconds. Correct the recognized wording while listening to the final audio, retaining the numbered segment headings and time ranges. Do not add instructions or review comments inside those sections.
+
+Align the corrected text without rerunning ASR:
+
+```powershell
+& .\.agent\skills\audio-to-srt\scripts\run-audio-to-srt.ps1 `
+  .local\video\pilot\final-audio.wav `
+  --transcript-input .local\video\pilot\final-transcript.md `
+  --language Chinese `
+  --output .local\video\pilot\final.srt `
+  --json-output .local\video\pilot\final.alignment.json
+```
+
+The aligner processes each supplied section against the corresponding audio range and restores the section's absolute offset. Section headings must be consecutive, cover the full final audio from zero without gaps, and end within 50 ms of the audio duration. This stops stale or partial transcripts from being aligned as if they covered the whole track.
 
 ## Editing and realignment
 

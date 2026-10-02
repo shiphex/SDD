@@ -27,9 +27,11 @@ description: Use when turning an article, narration, or approved final audio tra
 
 1. 口播音轨是内容顺序与节奏的依据。不要改写口播、合成替代音轨或在未审阅前删音频。
 2. 剪辑或补录完成后，先对这份最终音轨重新生成 `final.srt`。旧录音的时间码不适用于剪辑后音轨。
-3. 基于 `final.srt` 和用户确认的画面提纲，编写 `public/timeline.json`。`start` / `end` 使用最终音轨从 0 开始的秒数，场景按时间排序且不能重叠。
+3. 在 `video-workflow` 管理的流程中，只接收人工批准的 Markdown 页面大纲，并将页面映射到 `final.srt` 的 cue 和时间范围。基于这份映射编写 `public/timeline.json`。`start` / `end` 使用最终音轨从 0 开始的秒数，场景按时间排序且不能重叠。
 4. 浏览器的播放、暂停、拖动和场景按钮共用一个音频播放头；当前场景随 `currentTime` 更新。网页只呈现场景，不合成或更改旁白。
 5. Windows 从 PowerShell 运行 `scripts/scaffold.ps1`。它用 npm 建立 Vite + React + TypeScript 项目，并复制音频同步模板和所选主题 token。
+
+本流程不负责重新生成口播稿或批准大纲。内容问题回到 `video-workflow` 的内容审核回路；页面设计或同步问题留在演示质量回路。
 
 事实、术语和补录决定仍由人审阅。机器识别文字只作为校对起点。
 

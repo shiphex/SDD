@@ -7,6 +7,9 @@ import argparse
 import json
 import math
 import os
+import re
+import shutil
+import subprocess
 import sys
 import unicodedata
 from pathlib import Path
@@ -15,6 +18,8 @@ from typing import Any, Iterable
 
 DEFAULT_ASR_MODEL = "Qwen/Qwen3-ASR-0.6B"
 DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B"
+ALIGNMENT_SAMPLE_RATE = 16_000
+MAX_ALIGN_SEGMENT_SECONDS = 180.0
 COMMON_CJK_WORDS = (
     "一些",
     "一份",
@@ -96,6 +101,20 @@ def timestamp(seconds: float) -> str:
     minutes, milliseconds = divmod(milliseconds, 60_000)
     seconds_part, milliseconds = divmod(milliseconds, 1000)
     return f"{hours:02d}:{minutes:02d}:{seconds_part:02d},{milliseconds:03d}"
+
+
+def segment_timestamp(seconds: float) -> str:
+    return timestamp(seconds).replace(",", ".")
+
+
+def seconds_from_timestamp(value: str) -> float:
+    match = re.fullmatch(r"(\d{2,}):(\d{2}):(\d{2})\.(\d{3})", value.strip())
+    if not match:
+        raise ValueError(f"Invalid segment timestamp: {value}")
+    hours, minutes, seconds, milliseconds = map(int, match.groups())
+    if minutes >= 60 or seconds >= 60:
+        raise ValueError(f"Invalid segment timestamp: {value}")
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
 
 
 def is_punctuation(text: str) -> bool:
@@ -253,6 +272,240 @@ def rendered_text(items: list[dict[str, Any]]) -> str:
         parts.append(token)
         previous_lexical_item_cjk = token_cjk
     return "".join(parts).strip()
+
+
+def transcript_segments_from_items(
+    items: list[dict[str, Any]], duration: float
+) -> list[dict[str, Any]]:
+    """Group aligned ASR text into the same maximum-sized blocks as Qwen alignment."""
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Audio duration must be a positive finite number.")
+
+    sections: list[dict[str, Any]] = []
+    section_count = math.ceil(duration / MAX_ALIGN_SEGMENT_SECONDS)
+    for index in range(section_count):
+        start = index * MAX_ALIGN_SEGMENT_SECONDS
+        end = min(start + MAX_ALIGN_SEGMENT_SECONDS, duration)
+        section_items = [
+            item
+            for item in items
+            if start - 0.001 <= item["start"] < end
+        ]
+        for item in section_items:
+            if item["end"] > end + 0.05:
+                raise ValueError(
+                    "An aligned item crosses a 180-second transcript boundary; "
+                    "inspect the Qwen alignment output."
+                )
+        sections.append(
+            {"start": start, "end": end, "text": rendered_text(section_items)}
+        )
+    return sections
+
+
+def transcript_markdown(
+    sections: list[dict[str, Any]], language: str = "Chinese"
+) -> str:
+    lines = [
+        "# ASR 转写校对稿",
+        "",
+        f"<!-- language: {language} -->",
+        "<!-- 校对正文即可；保留每个音频段标题和时间范围。 -->",
+        "",
+    ]
+    for index, section in enumerate(sections, start=1):
+        lines.extend(
+            [
+                f"## 音频段 {index:03d} | {segment_timestamp(section['start'])} - {segment_timestamp(section['end'])}",
+                str(section["text"]),
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def parse_transcript_sections(markdown: str, duration: float) -> list[dict[str, Any]]:
+    """Parse the editable transcript sections used for chunk-limited realignment."""
+    header = re.compile(
+        r"^## 音频段 (\d{3,}) \| (\d{2,}:\d{2}:\d{2}\.\d{3}) - (\d{2,}:\d{2}:\d{2}\.\d{3})\s*$",
+        re.MULTILINE,
+    )
+    matches = list(header.finditer(markdown))
+    if not matches:
+        raise ValueError("No 音频段 headings were found in the corrected transcript.")
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Audio duration must be a positive finite number.")
+
+    sections: list[dict[str, Any]] = []
+    expected_start = 0.0
+    for index, match in enumerate(matches, start=1):
+        number = int(match.group(1))
+        if number != index:
+            raise ValueError("Audio segment headings must be numbered consecutively.")
+        start = seconds_from_timestamp(match.group(2))
+        end = seconds_from_timestamp(match.group(3))
+        if abs(start - expected_start) > 0.001:
+            raise ValueError("Audio segment ranges must be contiguous from 00:00:00.000.")
+        if end <= start:
+            raise ValueError("Audio segment end must follow its start.")
+        if end - start > MAX_ALIGN_SEGMENT_SECONDS + 0.0005:
+            raise ValueError("Each audio segment must be no longer than 180 seconds.")
+
+        body_start = match.end()
+        body_end = matches[index].start() if index < len(matches) else len(markdown)
+        body = markdown[body_start:body_end].strip()
+        body_lines = [
+            line.rstrip()
+            for line in body.splitlines()
+            if line.strip() and not line.strip().startswith("<!--")
+        ]
+        sections.append({"start": start, "end": end, "text": "\n".join(body_lines)})
+        expected_start = end
+
+    if abs(expected_start - duration) > 0.05:
+        raise ValueError(
+            "Transcript segment ranges must cover the complete audio duration "
+            "(within 50 ms)."
+        )
+    return sections
+
+
+def align_transcript_sections(
+    sections: list[dict[str, Any]], waveform: Any, aligner: Any, language: str
+) -> list[dict[str, Any]]:
+    """Align corrected text against each section and restore absolute audio offsets."""
+    items: list[dict[str, Any]] = []
+    sample_count = len(waveform)
+    audio_duration = sample_count / ALIGNMENT_SAMPLE_RATE
+    for section in sections:
+        text = str(section["text"]).strip()
+        if not normalized_characters(text):
+            continue
+        start = float(section["start"])
+        end = float(section["end"])
+        start_sample = round(start * ALIGNMENT_SAMPLE_RATE)
+        end_sample = round(end * ALIGNMENT_SAMPLE_RATE)
+        if start < 0 or end <= start or end > audio_duration + 0.05:
+            raise ValueError("Transcript section lies outside the decoded audio.")
+        audio_chunk = waveform[start_sample:min(end_sample, sample_count)]
+        if len(audio_chunk) == 0:
+            raise ValueError("Transcript section contains text but no audio samples.")
+
+        result = aligner.align(
+            audio=(audio_chunk, ALIGNMENT_SAMPLE_RATE), text=text, language=language
+        )[0]
+        section_items = aligned_items(value(result, "items", []))
+        section_items = restore_punctuation(text, section_items)
+        for item in section_items:
+            items.append(
+                {
+                    "text": item["text"],
+                    "start": round(item["start"] + start, 3),
+                    "end": round(item["end"] + start, 3),
+                }
+            )
+    return soften_continuing_full_stops(items)
+
+
+def audio_duration_seconds(audio_file: Path) -> float:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_file.resolve()),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        duration = float(result.stdout.strip())
+    except FileNotFoundError as error:
+        raise ValueError("ffprobe is required to write a segmented transcript.") from error
+    except (subprocess.CalledProcessError, ValueError) as error:
+        raise ValueError(f"Could not read audio duration with ffprobe: {audio_file}") from error
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError(f"Audio duration is invalid: {audio_file}")
+    return duration
+
+
+def validate_full_recording_gate(
+    duration: float, workflow_state: dict[str, Any] | None, run_id: str | None
+) -> None:
+    """Require an approved sample before this CLI handles long workflow audio."""
+    if duration <= 180.05:
+        return
+    if not run_id:
+        raise ValueError(
+            "Audio longer than 180 seconds requires VIDEO_RUN_ID and a current "
+            "sample_acceptance approval. Use the workflow PowerShell entrypoint."
+        )
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_id):
+        raise ValueError("VIDEO_RUN_ID must be a short filename-safe run ID.")
+    if workflow_state is None:
+        raise ValueError(
+            f"Audio longer than 180 seconds requires .local/video/{run_id}/workflow.json."
+        )
+    gates = workflow_state.get("gates")
+    sample_gate = gates.get("sample_acceptance") if isinstance(gates, dict) else None
+    if not isinstance(sample_gate, dict) or sample_gate.get("status") != "approved":
+        raise ValueError("Full recording work requires a current sample_acceptance approval.")
+    stage = workflow_state.get("stage")
+    if stage not in {"full_transcript", "full_final_transcript"}:
+        raise ValueError(
+            "Set full_transcript or full_final_transcript before processing long audio."
+        )
+
+
+def verify_audio_workflow_gate(audio_file: Path) -> float:
+    """Reconcile and verify approved audio identity before model inference."""
+    duration = audio_duration_seconds(audio_file)
+    if duration <= 180.05:
+        return duration
+    run_id = os.environ.get("VIDEO_RUN_ID")
+    if not run_id:
+        raise ValueError(
+            "Audio longer than 180 seconds requires VIDEO_RUN_ID and current workflow approval."
+        )
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_id):
+        raise ValueError("VIDEO_RUN_ID must be a short filename-safe run ID.")
+
+    powershell = shutil.which("pwsh") or shutil.which("powershell") or shutil.which("powershell.exe")
+    if not powershell:
+        raise ValueError(
+            "PowerShell is required to reconcile workflow hashes and verify long-audio approval."
+        )
+    repo_root = Path(__file__).resolve().parents[4]
+    state_script = repo_root / ".agent" / "skills" / "video-workflow" / "scripts" / "workflow-state.ps1"
+    try:
+        result = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-File",
+                str(state_script),
+                "-Action",
+                "assert-audio-approved",
+                "-RunId",
+                run_id,
+                "-InputAudio",
+                str(audio_file),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise ValueError("Could not start PowerShell to verify long-audio workflow approval.") from error
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout).strip()
+        raise ValueError(f"Workflow approval check failed for long audio: {details}")
+    return duration
 
 
 def ends_with_mark(text: str, marks: str) -> bool:
@@ -432,6 +685,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Resegment an existing alignment JSON without rerunning either model",
     )
+    parser.add_argument(
+        "--transcript-input",
+        type=Path,
+        help="Align a human-corrected, sectioned Markdown transcript to the input audio",
+    )
+    parser.add_argument(
+        "--transcript-output",
+        type=Path,
+        help="Write the ASR transcript in editable audio sections (default: alongside SRT)",
+    )
     parser.add_argument("--output", type=Path, help="SRT output path")
     parser.add_argument("--json-output", type=Path, help="Aligned transcript JSON path")
     parser.add_argument("--language", default="Chinese", help="Qwen language name or auto")
@@ -444,14 +707,65 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def model_device_config(args: argparse.Namespace, torch: Any) -> tuple[str, Any]:
+    use_cuda = args.device == "auto" and torch.cuda.is_available()
+    if args.device.startswith("cuda"):
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA was requested, but PyTorch cannot access a CUDA device.")
+        if args.device != "cuda" and not re.fullmatch(r"cuda:\d+", args.device):
+            raise ValueError("--device must be auto, cpu, cuda, or cuda:N")
+        device_map = args.device if ":" in args.device else "cuda:0"
+        use_cuda = True
+    elif args.device == "cpu":
+        device_map = "cpu"
+    elif args.device == "auto":
+        device_map = "cuda:0" if use_cuda else "cpu"
+    else:
+        raise ValueError("--device must be auto, cpu, cuda, or cuda:N")
+
+    if args.dtype == "auto":
+        if not use_cuda:
+            dtype = torch.float32
+        elif torch.cuda.is_bf16_supported():
+            dtype = torch.bfloat16
+        else:
+            dtype = torch.float16
+    else:
+        dtype = {
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+        }[args.dtype]
+    return device_map, dtype
+
+
+def write_alignment_files(
+    output: Path, json_output: Path, payload: dict[str, Any], items: list[dict[str, Any]], cues: list[dict[str, Any]], max_chars: int
+) -> None:
+    payload["items"] = items
+    payload["subtitles"] = cues
+    payload["subtitle_max_chars"] = max_chars
+    output.parent.mkdir(parents=True, exist_ok=True)
+    json_output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(srt_text(cues), encoding="utf-8")
+    json_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"Wrote {len(cues)} subtitle cues and {len(items)} aligned items.")
+    print(f"SRT: {output}")
+    print(f"Aligned JSON: {json_output}")
+
+
 def main() -> int:
     args = parse_args()
     if args.max_chars < 4:
         print("--max-chars must be at least 4", file=sys.stderr)
         return 2
 
+    if args.alignment_input and args.transcript_input:
+        print("Pass only one of --alignment-input and --transcript-input.", file=sys.stderr)
+        return 2
+
     if args.alignment_input:
-        if args.audio_file:
+        if args.audio_file or args.transcript_output:
             print("Pass either audio_file or --alignment-input, not both.", file=sys.stderr)
             return 2
         if not args.alignment_input.is_file():
@@ -471,22 +785,80 @@ def main() -> int:
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
             print(f"Could not resegment alignment JSON: {error}", file=sys.stderr)
             return 2
-        payload["items"] = items
-        payload["subtitles"] = cues
-        payload["subtitle_max_chars"] = args.max_chars
-        output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(srt_text(cues), encoding="utf-8")
-        json_output.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        write_alignment_files(output, json_output, payload, items, cues, args.max_chars)
+        return 0
+
+    if args.transcript_input:
+        if not args.audio_file:
+            print("Pass an audio_file with --transcript-input.", file=sys.stderr)
+            return 2
+        if not args.audio_file.is_file():
+            print(f"Input audio does not exist: {args.audio_file}", file=sys.stderr)
+            return 2
+        if not args.transcript_input.is_file():
+            print(f"Corrected transcript does not exist: {args.transcript_input}", file=sys.stderr)
+            return 2
+        if args.transcript_output:
+            print("--transcript-output is only used when running ASR.", file=sys.stderr)
+            return 2
+        if args.language.lower() == "auto":
+            print("Choose an explicit --language for forced alignment.", file=sys.stderr)
+            return 2
+        try:
+            verify_audio_workflow_gate(args.audio_file)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+
+        output = args.output or args.audio_file.with_suffix(".srt")
+        json_output = args.json_output or output.with_suffix(".json")
+        try:
+            import torch
+
+            enable_windows_hf_cache_fallback()
+            from qwen_asr import Qwen3ForcedAligner
+            from qwen_asr.inference.utils import normalize_audios
+
+            device_map, dtype = model_device_config(args, torch)
+            waveform = normalize_audios(str(args.audio_file.resolve()))[0]
+            duration = len(waveform) / ALIGNMENT_SAMPLE_RATE
+            transcript_text = args.transcript_input.read_text(encoding="utf-8")
+            sections = parse_transcript_sections(transcript_text, duration)
+            aligner = Qwen3ForcedAligner.from_pretrained(
+                args.aligner_model, dtype=dtype, device_map=device_map
+            )
+            items = align_transcript_sections(sections, waveform, aligner, args.language)
+            cues = subtitle_cues(items, args.max_chars)
+        except ImportError as error:
+            print(
+                "Qwen dependencies are missing. Run the PowerShell entrypoint or "
+                "`uv sync --project .agent/skills/audio-to-srt` first.",
+                file=sys.stderr,
+            )
+            raise error
+        except (OSError, ValueError, TypeError) as error:
+            print(f"Could not align the corrected transcript: {error}", file=sys.stderr)
+            return 2
+
+        write_alignment_files(
+            output,
+            json_output,
+            {
+                "schema_version": 2,
+                "language": args.language,
+                "text": "\n".join(section["text"] for section in sections),
+                "aligner_model": args.aligner_model,
+                "alignment_unit": "Qwen3-ForcedAligner; human-corrected transcript; section offsets restored",
+                "transcript_sections": sections,
+            },
+            items,
+            cues,
+            args.max_chars,
         )
-        print(f"Wrote {len(cues)} subtitle cues and {len(items)} aligned items.")
-        print(f"SRT: {output}")
-        print(f"Aligned JSON: {json_output}")
         return 0
 
     if not args.audio_file:
-        print("Pass an audio_file or --alignment-input.", file=sys.stderr)
+        print("Pass an audio_file, --alignment-input, or --transcript-input.", file=sys.stderr)
         return 2
     if not args.audio_file.is_file():
         print(f"Input audio does not exist: {args.audio_file}", file=sys.stderr)
@@ -494,6 +866,13 @@ def main() -> int:
 
     output = args.output or args.audio_file.with_suffix(".srt")
     json_output = args.json_output or output.with_suffix(".json")
+    transcript_output = args.transcript_output or output.with_suffix(".transcript.md")
+
+    try:
+        verified_duration = verify_audio_workflow_gate(args.audio_file)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
 
     try:
         import torch
@@ -508,34 +887,11 @@ def main() -> int:
         )
         raise error
 
-    use_cuda = args.device == "auto" and torch.cuda.is_available()
-    if args.device.startswith("cuda"):
-        if not torch.cuda.is_available():
-            print("CUDA was requested, but PyTorch cannot access a CUDA device.", file=sys.stderr)
-            return 2
-        device_map = args.device if ":" in args.device else "cuda:0"
-        use_cuda = True
-    elif args.device == "cpu":
-        device_map = "cpu"
-    elif args.device == "auto":
-        device_map = "cuda:0" if use_cuda else "cpu"
-    else:
-        print("--device must be auto, cpu, or cuda:N", file=sys.stderr)
+    try:
+        device_map, dtype = model_device_config(args, torch)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
         return 2
-
-    if args.dtype == "auto":
-        if not use_cuda:
-            dtype = torch.float32
-        elif torch.cuda.is_bf16_supported():
-            dtype = torch.bfloat16
-        else:
-            dtype = torch.float16
-    else:
-        dtype = {
-            "bf16": torch.bfloat16,
-            "fp16": torch.float16,
-            "fp32": torch.float32,
-        }[args.dtype]
 
     print(f"Loading Qwen3-ASR with {device_map}; timestamps use the forced aligner.")
     model = Qwen3ASRModel.from_pretrained(
@@ -558,34 +914,35 @@ def main() -> int:
     items = restore_punctuation(transcription.text, items)
     items = soften_continuing_full_stops(items)
     cues = subtitle_cues(items, args.max_chars)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    json_output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(srt_text(cues), encoding="utf-8")
-    json_output.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "language": transcription.language,
-                "text": transcription.text,
-                "asr_model": args.asr_model,
-                "aligner_model": args.aligner_model,
-                "alignment_unit": (
-                    "Qwen3-ForcedAligner output; original timings preserved; "
-                    "ASR punctuation restored by character offset"
-                ),
-                "items": items,
-                "subtitles": cues,
-                "subtitle_max_chars": args.max_chars,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    try:
+        sections = transcript_segments_from_items(items, verified_duration)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    write_alignment_files(
+        output,
+        json_output,
+        {
+            "schema_version": 2,
+            "language": transcription.language,
+            "text": transcription.text,
+            "asr_model": args.asr_model,
+            "aligner_model": args.aligner_model,
+            "alignment_unit": (
+                "Qwen3-ForcedAligner output; original timings preserved; "
+                "ASR punctuation restored by character offset"
+            ),
+            "transcript_sections": sections,
+        },
+        items,
+        cues,
+        args.max_chars,
     )
-    print(f"Wrote {len(cues)} subtitle cues and {len(items)} aligned items.")
-    print(f"SRT: {output}")
-    print(f"Aligned JSON: {json_output}")
+    transcript_output.parent.mkdir(parents=True, exist_ok=True)
+    transcript_output.write_text(
+        transcript_markdown(sections, transcription.language), encoding="utf-8"
+    )
+    print(f"Transcript for proofreading: {transcript_output}")
     return 0
 
 

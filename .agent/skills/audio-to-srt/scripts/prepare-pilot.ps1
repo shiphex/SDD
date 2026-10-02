@@ -1,5 +1,7 @@
 param(
     [string]$InputAudio,
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
+    [string]$RunId = 'pilot',
     [ValidateRange(30, 180)]
     [int]$SampleSeconds = 180,
     [switch]$SkipTranscription
@@ -8,31 +10,35 @@ param(
 $ErrorActionPreference = 'Stop'
 $skillRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $skillRoot '../../..')).Path
-$pilotRoot = Join-Path $repoRoot '.local/video/pilot'
 $localRoot = Join-Path $repoRoot '.local/video'
-$env:UV_CACHE_DIR = Join-Path $pilotRoot 'cache/uv'
-$env:UV_PROJECT_ENVIRONMENT = Join-Path $pilotRoot 'env/qwen-asr'
+$runRoot = Join-Path $localRoot $RunId
+$env:VIDEO_RUN_ID = $RunId
+$env:UV_CACHE_DIR = Join-Path $runRoot 'cache/uv'
+$env:UV_PROJECT_ENVIRONMENT = Join-Path $runRoot 'env/qwen-asr'
 New-Item -ItemType Directory -Force -Path $env:UV_CACHE_DIR | Out-Null
 if (-not $InputAudio) {
-    $toolConfigPath = Join-Path $pilotRoot 'tool-paths.json'
+    $toolConfigPath = Join-Path $runRoot 'tool-paths.json'
     if (Test-Path -LiteralPath $toolConfigPath) {
         $toolConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $toolConfigPath | ConvertFrom-Json
         $InputAudio = $toolConfig.sourceAudio
     }
     if (-not $InputAudio) {
-        throw 'Pass -InputAudio or set sourceAudio in the ignored .local/video/pilot/tool-paths.json.'
+        throw "Pass -InputAudio or set sourceAudio in .local/video/$RunId/tool-paths.json."
     }
 }
 $InputAudio = (Resolve-Path -LiteralPath $InputAudio).Path
 
-New-Item -ItemType Directory -Force -Path $pilotRoot | Out-Null
-$sampleAudio = Join-Path $pilotRoot 'source-first-3m.wav'
-$sourceSrt = Join-Path $pilotRoot 'source.srt'
-$alignmentJson = Join-Path $pilotRoot 'source.alignment.json'
-$timelineFile = Join-Path $pilotRoot 'roughcut.v2'
-$reviewFile = Join-Path $pilotRoot 'edit-review.md'
-$mltFile = Join-Path $pilotRoot 'roughcut-candidate.mlt'
-$autoEditor = Join-Path $pilotRoot 'tools/auto-editor-31.6.0-windows-x86_64.exe'
+New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+$sampleAudio = Join-Path $runRoot 'source-first-3m.wav'
+$sourceSrt = Join-Path $runRoot 'source.srt'
+$alignmentJson = Join-Path $runRoot 'source.alignment.json'
+$timelineFile = Join-Path $runRoot 'roughcut.v2'
+$reviewFile = Join-Path $runRoot 'edit-review.md'
+$mltFile = Join-Path $runRoot 'roughcut-candidate.mlt'
+$autoEditor = Join-Path $runRoot 'tools/auto-editor-31.6.0-windows-x86_64.exe'
+if (-not (Test-Path -LiteralPath $autoEditor)) {
+    $autoEditor = Join-Path $localRoot 'pilot/tools/auto-editor-31.6.0-windows-x86_64.exe'
+}
 
 if (Test-Path -LiteralPath $mltFile) {
     throw 'A rough-cut project already exists. Review it first; start a separate pilot before replacing its source or timeline.'
