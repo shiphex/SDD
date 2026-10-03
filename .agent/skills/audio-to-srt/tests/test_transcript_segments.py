@@ -17,6 +17,28 @@ SPEC.loader.exec_module(audio_to_srt)
 
 
 class TranscriptSegmentTests(unittest.TestCase):
+    def test_full_draft_transcription_needs_explicit_full_ai_authorization(self) -> None:
+        state = {"stage": "full_content_review", "gates": {
+            "sample_acceptance": {"status": "approved"},
+            "full_ai_edit_authorization": {"status": "approved"},
+            "full_content_review": {"status": "pending"},
+        }}
+        audio_to_srt.validate_full_recording_gate(300.0, state, "pilot")
+        state["gates"]["full_ai_edit_authorization"]["status"] = "pending"
+        with self.assertRaisesRegex(ValueError, "authorization"):
+            audio_to_srt.validate_full_recording_gate(300.0, state, "pilot")
+
+    def test_transcript_boundary_moves_before_a_crossing_word(self) -> None:
+        items = [
+            {"text": "开始", "start": 1.0, "end": 1.5},
+            {"text": "边界", "start": 179.9, "end": 180.08},
+            {"text": "结束", "start": 200.0, "end": 200.5},
+        ]
+        sections = audio_to_srt.transcript_segments_from_items(items, 210.0)
+        self.assertEqual([(s["start"], s["end"]) for s in sections], [(0.0, 179.9), (179.9, 210.0)])
+        self.assertIn("边界", sections[1]["text"])
+        self.assertNotIn("边界", sections[0]["text"])
+
     def test_short_sample_does_not_need_full_recording_gate(self) -> None:
         audio_to_srt.validate_full_recording_gate(180.0, None, None)
 

@@ -152,6 +152,10 @@ try {
     & $stateScript -Action set-gate -RunId $runId -Gate sample_acceptance -Decision approved -DependsOn sample-outline,sample-content-review-02,sample-final-audio,sample-srt,sample-presentation,sample-quality-review | Out-Null
     & $stateScript -Action set-stage -RunId $runId -Stage full_transcript | Out-Null
 
+    # Older manifests did not store scope: an existing sample issue must stay sample.
+    $legacyManifest = Get-Content -Raw -Encoding utf8 $manifestPath | ConvertFrom-Json
+    $legacyManifest.review_items.'I-001'.PSObject.Properties.Remove('scope')
+    [IO.File]::WriteAllText($manifestPath, ($legacyManifest | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
     & $stateScript -Action set-item -RunId $runId -ItemId I-001 -ItemStatus needs_revision -Decision revise | Out-Null
     $manifest = Get-Content -Raw -Encoding utf8 $manifestPath | ConvertFrom-Json
     if ($manifest.gates.content_review.status -ne 'stale' -or $manifest.gates.shotcut_export.status -ne 'stale' -or $manifest.gates.sample_acceptance.status -ne 'stale') {

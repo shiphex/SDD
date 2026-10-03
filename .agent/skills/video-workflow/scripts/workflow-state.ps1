@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('initialize', 'register-artifact', 'set-stage', 'set-item', 'set-gate', 'reconcile', 'status', 'assert-full-approved', 'assert-audio-approved')]
+    [ValidateSet('initialize', 'register-artifact', 'snapshot-reference', 'set-stage', 'set-item', 'set-gate', 'reconcile', 'status', 'assert-full-approved', 'assert-audio-approved', 'assert-full-edit-approved', 'assert-assembly-approved', 'assert-retime-approved')]
     [string]$Action,
 
     [Parameter(Mandatory = $true)]
@@ -14,9 +14,11 @@ param(
     [string]$InputAudio,
     [string[]]$DependsOn = @(),
     [switch]$ConfirmRebuilt,
-    [ValidateSet('sample_prepare', 'sample_outline', 'sample_content_review', 'sample_shotcut', 'sample_ai_edit', 'sample_final_transcript', 'sample_captions', 'sample_web_demo', 'sample_quality_review', 'full_transcript', 'full_outline', 'full_content_review', 'full_shotcut', 'full_final_transcript', 'full_captions', 'full_web_demo', 'complete')]
+    [ValidateSet('sample_prepare', 'sample_outline', 'sample_content_review', 'sample_shotcut', 'sample_ai_edit', 'sample_final_transcript', 'sample_captions', 'sample_web_demo', 'sample_quality_review', 'full_transcript', 'full_outline', 'full_content_review', 'full_shotcut', 'full_ai_edit', 'full_final_transcript', 'full_captions', 'full_web_demo', 'full_quality_review', 'complete')]
     [string]$Stage,
     [string]$ItemId,
+    [ValidateSet('sample', 'full')]
+    [string]$ReviewScope,
     [ValidateSet('pending', 'needs_revision', 'accepted', 'resolved')]
     [string]$ItemStatus,
     [string]$Decision,
@@ -99,6 +101,11 @@ function Read-Manifest {
     $manifest = Get-Content -Raw -Encoding utf8 -LiteralPath $script:ManifestPath | ConvertFrom-Json
     if (-not (Get-ObjectProperty $manifest.gates 'ai_audio_export')) {
         Set-ObjectProperty $manifest.gates 'ai_audio_export' ([pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} })
+    }
+    foreach ($id in @('full_ai_edit_authorization', 'full_ai_audio_export')) {
+        if (-not (Get-ObjectProperty $manifest.gates $id)) {
+            Set-ObjectProperty $manifest.gates $id ([pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} })
+        }
     }
     return $manifest
 }
@@ -283,6 +290,31 @@ function Test-SampleExportApproved {
             (Get-ObjectProperty $Manifest.gates 'ai_audio_export').status -eq 'approved')
 }
 
+function Test-FullExportApproved {
+    param([object]$Manifest)
+    foreach ($id in @('shotcut_export', 'full_ai_audio_export')) {
+        $export = Get-ObjectProperty $Manifest.gates $id
+        if ($export.status -ne 'approved' -or 'full-final-audio' -notin @($export.depends_on)) { continue }
+        $matches = $true
+        foreach ($dependency in @($Manifest.gates.full_content_review.depends_on) + @('full-final-audio')) {
+            $artifact = Get-Artifact $Manifest $dependency
+            if ($null -eq $artifact -or $artifact.status -ne 'current' -or
+                $dependency -notin @($export.depends_on) -or
+                (Get-ObjectProperty $export.input_hashes $dependency) -ne $artifact.sha256) { $matches = $false; break }
+        }
+        if ($matches) { return $true }
+    }
+    return $false
+}
+
+function Assert-FullAIApproved {
+    param([object]$Manifest)
+    if ($Manifest.gates.sample_acceptance.status -ne 'approved' -or
+        $Manifest.gates.full_ai_edit_authorization.status -ne 'approved') {
+        throw 'Full AI editing requires current sample acceptance and explicit full AI authorization.'
+    }
+}
+
 function Assert-ApprovedAudioInput {
     param([object]$Manifest, [string]$InputAudioPath)
     if (-not $InputAudioPath) { throw '-InputAudio is required for audio approval checks.' }
@@ -298,12 +330,28 @@ function Assert-ApprovedAudioInput {
             if ($Manifest.gates.sample_acceptance.status -ne 'approved') {
                 throw 'Full recording work requires a current sample_acceptance approval.'
             }
-            Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'source-audio'
+            $decoded = Get-Artifact $Manifest 'full-source-wav'
+            if ($decoded -and ([IO.Path]::GetFullPath((Resolve-InputFile $InputAudioPath))).Equals([IO.Path]::GetFullPath((Get-AbsoluteArtifactPath $decoded.path)), [StringComparison]::OrdinalIgnoreCase)) {
+                if ('source-audio' -notin @($decoded.depends_on)) { throw 'Decoded full source must depend on source-audio.' }
+                Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'full-source-wav'
+            } else {
+                Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'source-audio'
+            }
+            return
+        }
+        'full_content_review' {
+            Assert-FullAIApproved $Manifest
+            $pickup = Get-Artifact $Manifest 'full-pickup-wav'
+            if ($pickup -and ([IO.Path]::GetFullPath((Resolve-InputFile $InputAudioPath))).Equals([IO.Path]::GetFullPath((Get-AbsoluteArtifactPath $pickup.path)), [StringComparison]::OrdinalIgnoreCase)) {
+                Assert-PickupApproved $Manifest $InputAudioPath
+                return
+            }
+            Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'full-draft-audio'
             return
         }
         'full_final_transcript' {
-            if ($Manifest.gates.sample_acceptance.status -ne 'approved' -or $Manifest.gates.full_content_review.status -ne 'approved' -or $Manifest.gates.shotcut_export.status -ne 'approved') {
-                throw 'Full final-audio transcription requires current sample, content, and Shotcut approvals.'
+            if ($Manifest.gates.sample_acceptance.status -ne 'approved' -or $Manifest.gates.full_content_review.status -ne 'approved' -or -not (Test-FullExportApproved $Manifest)) {
+                throw 'Full final-audio transcription requires current sample, content, and audio export approvals.'
             }
             Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'full-final-audio'
             return
@@ -312,6 +360,25 @@ function Assert-ApprovedAudioInput {
             throw "Long audio is not allowed at workflow stage '$($Manifest.stage)'. Use sample_final_transcript, full_transcript, or full_final_transcript with the registered audio artifact."
         }
     }
+}
+
+function Assert-PickupApproved {
+    param([object]$Manifest, [string]$InputPath)
+    Assert-FullAIApproved $Manifest
+    if ($Manifest.stage -notin @('full_content_review', 'full_ai_edit')) { throw 'Pickup editing requires a full editing stage.' }
+    $wav = Get-Artifact $Manifest 'full-pickup-wav'
+    $authorization = Get-Artifact $Manifest 'full-pickup-authorization'
+    if ($null -eq $authorization -or $authorization.status -ne 'current' -or
+        'full-pickup-source-audio' -notin @($authorization.depends_on) -or
+        'full-pickup-source-audio' -notin @($wav.depends_on) -or
+        'full-pickup-authorization' -notin @($wav.depends_on)) {
+        throw 'Pickup requires current source and explicit pickup authorization dependencies.'
+    }
+    foreach ($id in @('full-pickup-source-audio', 'full-pickup-authorization')) {
+        $artifact = Get-Artifact $Manifest $id
+        Assert-AudioMatchesArtifact $Manifest (Get-AbsoluteArtifactPath $artifact.path) $id
+    }
+    Assert-AudioMatchesArtifact $Manifest $InputPath 'full-pickup-wav'
 }
 
 function Invoke-WorkflowAction {
@@ -348,6 +415,51 @@ function Invoke-WorkflowAction {
             }
             Save-Manifest $manifest
             Write-Output "Initialized workflow state for '$RunId'."
+            return
+        }
+
+        'snapshot-reference' {
+            if (-not $ArtifactId -or -not $Path) { throw '-ArtifactId and -Path are required.' }
+            if ($ArtifactId -notmatch '^(project-plan|content-source-[A-Za-z0-9._-]+)$') {
+                throw 'Only declared content reference documents may be snapshotted; media and approval records are excluded.'
+            }
+            $manifest = Read-Manifest
+            $artifact = Get-Artifact $manifest $ArtifactId
+            if (-not $artifact -or $artifact.status -ne 'current') { throw 'Reference must be current before snapshotting.' }
+            $source = Get-AbsoluteArtifactPath $artifact.path
+            if ([IO.Path]::GetExtension($source) -notin @('.md', '.txt')) { throw 'Reference must be a text document.' }
+            if ((Get-FileHashHex $source) -ne $artifact.sha256) { throw 'Reference hash changed; register and review the new source first.' }
+            $reviewed = $false
+            foreach ($gateProperty in $manifest.gates.PSObject.Properties) {
+                $gate = $gateProperty.Value
+                if ($gate.status -eq 'approved' -and $ArtifactId -in @($gate.depends_on) -and
+                    (Get-ObjectProperty $gate.input_hashes $ArtifactId) -eq $artifact.sha256) { $reviewed = $true }
+            }
+            if (-not $reviewed) { throw 'Reference has no current approval to preserve.' }
+            $target = if ([IO.Path]::IsPathRooted($Path)) { [IO.Path]::GetFullPath($Path) } else { [IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Path)) }
+            $runPrefix = [IO.Path]::GetFullPath($script:RunDir).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+            if (-not $target.StartsWith($runPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Reference snapshot must stay in the current ignored run directory.' }
+            if ((Test-Path -LiteralPath $target) -or [IO.Path]::GetExtension($target) -notin @('.md', '.txt')) { throw 'Use a new text snapshot path.' }
+            $parent = Split-Path -Parent $target
+            $ancestor = $parent
+            while ($ancestor -and $ancestor.StartsWith($script:RepoRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Snapshot path must not pass through a link or junction.' }
+                $ancestor = Split-Path -Parent $ancestor
+            }
+            [IO.Directory]::CreateDirectory($parent) | Out-Null
+            [IO.File]::Copy($source, $target, $false)
+            if ((Get-FileHashHex $target) -ne $artifact.sha256 -or (Get-FileHashHex $source) -ne $artifact.sha256) {
+                Remove-Item -LiteralPath $target -Force
+                throw 'Reference changed while creating snapshot.'
+            }
+            $origin = Get-ObjectProperty $artifact 'snapshot_of'
+            if (-not $origin) { $origin = $artifact.path }
+            Set-ObjectProperty $artifact 'snapshot_of' $origin
+            Set-ObjectProperty $artifact 'snapshot_at' ([DateTime]::UtcNow.ToString('o'))
+            $artifact.path = Get-RepoDisplayPath $target
+            # Approval hashes and dependent bytes refer to the identical reviewed document.
+            Save-Manifest $manifest
+            Write-Output "Preserved reviewed reference '$ArtifactId' as a fixed snapshot."
             return
         }
 
@@ -403,7 +515,7 @@ function Invoke-WorkflowAction {
                         if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                     }
                 } elseif ($ArtifactId -match '^full-content-review') {
-                    foreach ($gateId in @('full_content_review', 'shotcut_export')) {
+                    foreach ($gateId in @('full_content_review', 'shotcut_export', 'full_ai_audio_export')) {
                         $gateState = Get-ObjectProperty $manifest.gates $gateId
                         if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                     }
@@ -432,13 +544,14 @@ function Invoke-WorkflowAction {
             if ($Stage -match '^sample_(final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.content_review.status -ne 'approved') {
                 throw 'This stage requires a current content_review approval.'
             }
-            if ($Stage -eq 'full_shotcut' -and $manifest.gates.full_content_review.status -ne 'approved') {
+            if ($Stage -in @('full_shotcut', 'full_ai_edit') -and $manifest.gates.full_content_review.status -ne 'approved') {
                 throw 'Full audio editing requires an approved, current full_content_review gate.'
             }
-            if ($Stage -match '^full_(final_transcript|captions|web_demo)$' -and $manifest.gates.shotcut_export.status -ne 'approved') {
-                throw 'This stage requires an approved Shotcut audio export.'
+            if ($Stage -eq 'full_ai_edit') { Assert-FullAIApproved $manifest }
+            if ($Stage -match '^full_(final_transcript|captions|web_demo|quality_review)$' -and -not (Test-FullExportApproved $manifest)) {
+                throw 'This stage requires an approved full audio export.'
             }
-            if ($Stage -match '^full_(final_transcript|captions|web_demo)$' -and $manifest.gates.full_content_review.status -ne 'approved') {
+            if ($Stage -match '^full_(final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.full_content_review.status -ne 'approved') {
                 throw 'This stage requires a current full_content_review approval.'
             }
             $manifest.stage = $Stage
@@ -454,15 +567,18 @@ function Invoke-WorkflowAction {
             }
             $manifest = Read-Manifest
             $previous = Get-ObjectProperty $manifest.review_items $ItemId
-            $changed = ($null -eq $previous) -or ($previous.status -ne $ItemStatus) -or ($previous.decision -ne $Decision)
+            $scope = if ($ReviewScope) { $ReviewScope } elseif ($previous) { if (Get-ObjectProperty $previous 'scope') { $previous.scope } else { 'sample' } } elseif ($manifest.stage -match '^full_') { 'full' } else { 'sample' }
+            $changed = ($null -eq $previous) -or ($previous.status -ne $ItemStatus) -or ($previous.decision -ne $Decision) -or ((Get-ObjectProperty $previous 'scope') -ne $scope)
             $reviewItem = [pscustomobject]@{
+                scope = $scope
                 status = $ItemStatus
                 decision = $Decision
                 updated_at = [DateTime]::UtcNow.ToString('o')
             }
             Set-ObjectProperty $manifest.review_items $ItemId $reviewItem
             if ($changed) {
-                foreach ($gateId in @('content_review', 'full_content_review', 'shotcut_export', 'ai_audio_export', 'sample_acceptance')) {
+                $invalidGates = if ($scope -eq 'full') { @('full_content_review', 'shotcut_export', 'full_ai_audio_export') } else { @('content_review', 'full_content_review', 'shotcut_export', 'ai_audio_export', 'sample_acceptance', 'full_ai_audio_export') }
+                foreach ($gateId in $invalidGates) {
                     $gateState = Get-ObjectProperty $manifest.gates $gateId
                     if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                 }
@@ -482,6 +598,16 @@ function Invoke-WorkflowAction {
             }
             if ($Decision -eq 'approved') {
                 Assert-GateDependenciesCurrent $manifest $DependsOn
+                if ($Gate -eq 'full_ai_edit_authorization') {
+                    if ($manifest.gates.sample_acceptance.status -ne 'approved') { throw 'Full AI authorization requires current sample acceptance.' }
+                    Assert-RequiredArtifactIds $DependsOn @('source-audio', 'run-brief') 'full_ai_edit_authorization'
+                }
+                if ($Gate -eq 'full_ai_audio_export') {
+                    Assert-FullAIApproved $manifest
+                    if ($manifest.stage -ne 'full_ai_edit' -or $manifest.gates.full_content_review.status -ne 'approved') { throw 'Full AI final audio requires full_ai_edit and approved full content.' }
+                    Assert-RequiredArtifactIds $DependsOn @($manifest.gates.full_content_review.depends_on) 'full_ai_audio_export'
+                    Assert-RequiredArtifactIds $DependsOn @('full-cut-map', 'full-final-audio') 'full_ai_audio_export'
+                }
                 if ($Gate -eq 'content_review' -or $Gate -eq 'full_content_review') {
                     $expectedStage = if ($Gate -eq 'content_review') { 'sample_content_review' } else { 'full_content_review' }
                     if ($manifest.stage -ne $expectedStage) {
@@ -494,6 +620,10 @@ function Invoke-WorkflowAction {
                     }
                     Assert-ReviewIssueIdsRegistered $manifest $DependsOn $Gate
                     foreach ($itemProperty in $manifest.review_items.PSObject.Properties) {
+                        $itemScope = Get-ObjectProperty $itemProperty.Value 'scope'
+                        if (-not $itemScope) { $itemScope = 'sample' }
+                        $gateScope = if ($Gate -eq 'content_review') { 'sample' } else { 'full' }
+                        if ($itemScope -ne $gateScope) { continue }
                         if ($itemProperty.Value.status -notin @('accepted', 'resolved')) {
                             throw "Content review has an unresolved item: $($itemProperty.Name) ($($itemProperty.Value.status))."
                         }
@@ -575,6 +705,7 @@ function Invoke-WorkflowAction {
             } elseif ($Decision -ne 'approved' -and $Gate -eq 'full_content_review') {
                 $shotcutGate = Get-ObjectProperty $manifest.gates 'shotcut_export'
                 if ($shotcutGate -and $shotcutGate.status -eq 'approved') { $shotcutGate.status = 'stale' }
+                if ($manifest.gates.full_ai_audio_export.status -eq 'approved') { $manifest.gates.full_ai_audio_export.status = 'stale' }
             }
             Save-Manifest $manifest
             Write-Output "Recorded gate '$Gate' as '$Decision'."
@@ -617,6 +748,76 @@ function Invoke-WorkflowAction {
             return
         }
 
+        'assert-full-edit-approved' {
+            $manifest = Read-Manifest
+            Reconcile-Manifest $manifest
+            Assert-FullAIApproved $manifest
+            if ($manifest.stage -notin @('full_content_review', 'full_ai_edit')) { throw 'Full AI cutting requires full_content_review or full_ai_edit.' }
+            $decoded = Get-Artifact $manifest 'full-source-wav'
+            if ($null -eq $decoded -or 'source-audio' -notin @($decoded.depends_on)) { throw 'Full source WAV must depend on source-audio.' }
+            Assert-AudioMatchesArtifact $manifest $InputAudio 'full-source-wav'
+            Save-Manifest $manifest
+            Write-Output 'Full AI editing is authorized for the registered source WAV.'
+            return
+        }
+        'assert-assembly-approved' {
+            $manifest = Read-Manifest
+            Reconcile-Manifest $manifest
+            Assert-FullAIApproved $manifest
+            if ($manifest.stage -notin @('full_content_review', 'full_ai_edit')) { throw 'Assembly requires a full editing stage.' }
+            Assert-AudioMatchesArtifact $manifest $Path 'full-assembly-timeline'
+            $timelineArtifact = Get-Artifact $manifest 'full-assembly-timeline'
+            $timeline = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+            if (-not $timeline.sources -or -not $timeline.segments) { throw 'Assembly requires sources and segments.' }
+            foreach ($entry in $timeline.sources.PSObject.Properties) {
+                $source = $entry.Value
+                $id = [string]$source.artifact_id
+                if ($id -notin @('full-preview-baseline-audio', 'full-pickup-wav') -or $id -notin @($timelineArtifact.depends_on)) { throw 'Unapproved assembly source or missing timeline dependency.' }
+                $inputPath = [string]$source.path
+                if (-not [IO.Path]::IsPathRooted($inputPath)) { $inputPath = Join-Path (Split-Path -Parent $Path) $inputPath }
+                Assert-AudioMatchesArtifact $manifest $inputPath $id
+                $artifact = Get-Artifact $manifest $id
+                if ($artifact.sha256 -ne $source.sha256) { throw 'Timeline source hash differs from registration.' }
+                if ($id -eq 'full-pickup-wav') {
+                    Assert-PickupApproved $manifest $inputPath
+                } else {
+                    if ('full-preview-baseline-cut-map' -notin @($artifact.depends_on)) { throw 'Baseline must retain its original cut map.' }
+                    $baselineMap = Get-Artifact $manifest 'full-preview-baseline-cut-map'
+                    if ($null -eq $baselineMap -or 'full-source-wav' -notin @($baselineMap.depends_on)) { throw 'Baseline map must depend on the original source WAV.' }
+                    Assert-AudioMatchesArtifact $manifest (Get-AbsoluteArtifactPath $baselineMap.path) 'full-preview-baseline-cut-map'
+                }
+            }
+            Save-Manifest $manifest
+            Write-Output 'Assembly timeline and all registered inputs are approved for editing.'
+            return
+        }
+        'assert-retime-approved' {
+            $manifest = Read-Manifest
+            Reconcile-Manifest $manifest
+            Assert-FullAIApproved $manifest
+            if ($manifest.stage -notin @('full_content_review', 'full_ai_edit')) { throw 'Retime requires a full editing stage.' }
+            Assert-AudioMatchesArtifact $manifest $Path 'full-retime-timeline'
+            $timeline = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+            $timelineArtifact = Get-Artifact $manifest 'full-retime-timeline'
+            foreach ($key in @('source','source_map')) {
+                $expectedId = if ($key -eq 'source') { 'full-retime-baseline-audio' } else { 'full-retime-baseline-map' }
+                $entry = $timeline.$key
+                if (-not $entry -or $entry.artifact_id -ne $expectedId -or $expectedId -notin @($timelineArtifact.depends_on)) { throw 'Unapproved retime input or missing dependency.' }
+                $inputPath = [string]$entry.path
+                if (-not [IO.Path]::IsPathRooted($inputPath)) { $inputPath = Join-Path (Split-Path -Parent $Path) $inputPath }
+                Assert-AudioMatchesArtifact $manifest $inputPath $expectedId
+                if ((Get-Artifact $manifest $expectedId).sha256 -ne $entry.sha256) { throw 'Retime input hash differs from registration.' }
+            }
+            $baseline = Get-Artifact $manifest 'full-retime-baseline-audio'
+            if ('full-retime-baseline-map' -notin @($baseline.depends_on)) { throw 'Retime baseline must retain its source map.' }
+            $baselineMap = Get-Artifact $manifest 'full-retime-baseline-map'
+            Assert-RequiredArtifactIds $baselineMap.depends_on @('full-assembly-timeline','full-preview-baseline-audio','full-pickup-wav') 'retime baseline provenance'
+            $assemblyArtifact = Get-Artifact $manifest 'full-assembly-timeline'
+            & $PSCommandPath -Action assert-assembly-approved -RunId $RunId -Path (Get-AbsoluteArtifactPath $assemblyArtifact.path) | Out-Null
+            Save-Manifest $manifest
+            Write-Output 'Retime timeline and fixed baseline inputs are approved for editing.'
+            return
+        }
         'assert-audio-approved' {
             $manifest = Read-Manifest
             Reconcile-Manifest $manifest

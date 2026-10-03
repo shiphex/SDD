@@ -282,10 +282,19 @@ def transcript_segments_from_items(
         raise ValueError("Audio duration must be a positive finite number.")
 
     sections: list[dict[str, Any]] = []
-    section_count = math.ceil(duration / MAX_ALIGN_SEGMENT_SECONDS)
-    for index in range(section_count):
-        start = index * MAX_ALIGN_SEGMENT_SECONDS
+    start = 0.0
+    while start < duration:
         end = min(start + MAX_ALIGN_SEGMENT_SECONDS, duration)
+        # Move a section break before words crossing the 180-second boundary.
+        # Their original timestamps remain intact and later alignment inputs
+        # still fit within the maximum supported duration.
+        while True:
+            crossing = [item for item in items if item["start"] < end < item["end"]]
+            if not crossing:
+                break
+            end = min(item["start"] for item in crossing)
+            if end <= start:
+                raise ValueError("An aligned item exceeds the 180-second alignment limit.")
         section_items = [
             item
             for item in items
@@ -300,6 +309,7 @@ def transcript_segments_from_items(
         sections.append(
             {"start": start, "end": end, "text": rendered_text(section_items)}
         )
+        start = end
     return sections
 
 
@@ -456,6 +466,11 @@ def validate_full_recording_gate(
     if not isinstance(sample_gate, dict) or sample_gate.get("status") != "approved":
         raise ValueError("Full recording work requires a current sample_acceptance approval.")
     stage = workflow_state.get("stage")
+    if stage == "full_content_review":
+        authorization = gates.get("full_ai_edit_authorization", {})
+        if authorization.get("status") != "approved":
+            raise ValueError("Full draft transcription requires explicit full AI authorization.")
+        return
     if stage not in {"full_transcript", "full_final_transcript"}:
         raise ValueError(
             "Set full_transcript or full_final_transcript before processing long audio."

@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('sample', 'full')][string]$Scope = 'sample',
     [Parameter(Mandatory = $true)][ValidateSet('draft', 'audio', 'delivery')][string]$Action,
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$RunId,
     [string]$CutMap,
@@ -13,6 +14,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Scope -eq 'full') {
+    $forward = @{} + $PSBoundParameters
+    $forward.Remove('Scope')
+    & (Join-Path $PSScriptRoot 'register-full-output.ps1') @forward
+    return
+}
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../../../..')).Path
 $state = Join-Path $PSScriptRoot 'workflow-state.ps1'
 $manifestPath = Join-Path $repoRoot ".local/video/$RunId/workflow.json"

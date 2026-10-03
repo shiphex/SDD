@@ -1,7 +1,7 @@
 ---
 name: audio-to-srt
 description: Use when generating a verbatim transcript or SRT subtitles from local audio with Qwen3-ASR, or when realigning subtitles after an audio edit. Uses Qwen3-ForcedAligner timestamps and UV-managed Python dependencies.
-version: 0.3.1
+version: 0.4.0
 ---
 
 # Audio to SRT with Qwen3-ASR
@@ -73,6 +73,8 @@ Align the corrected text without rerunning ASR:
 The aligner processes each supplied section against the corresponding audio range and restores the section's absolute offset. Section headings must be consecutive, cover the full final audio from zero without gaps, and end within 50 ms of the audio duration. This stops stale or partial transcripts from being aligned as if they covered the whole track.
 
 ## Editing and realignment
+
+For an expressly authorized full AI run, decode M4A to mono PCM WAV with FFmpeg and register it as `full-source-wav` depending on `source-audio`. The `full_transcript` stage accepts either registered source. At `full_content_review`, the registered `full-draft-audio` or expressly authorized `full-pickup-wav` may be transcribed or realigned, and both sample acceptance and full AI authorization must be current. A pickup WAV must depend on `full-pickup-source-audio` and `full-pickup-authorization`; the authorization must depend on that pickup source. Path, hashes, and dependency freshness are checked before inference. An unregistered pickup remains rejected. This produces an internal preview without approving content. After content confirmation, final alignment accepts `full-final-audio` with either a current full AI audio export or Shotcut export. Each editable transcript section stays within 180 seconds; when a word crosses a section boundary, move the boundary before that word and preserve its timing.
 
 For an audio edit, preserve the source transcript and its original timestamps as `source.srt`. Finalize the audio through the route authorized for the current run in `video-workflow` (Shotcut or an expressly authorized AI sample edit). Then run this converter again on the exported final audio and save the output as `final.srt`. Never reuse source timestamps after a cut or pickup recording.
 
