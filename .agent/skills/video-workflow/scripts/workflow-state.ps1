@@ -14,7 +14,7 @@ param(
     [string]$InputAudio,
     [string[]]$DependsOn = @(),
     [switch]$ConfirmRebuilt,
-    [ValidateSet('sample_prepare', 'sample_outline', 'sample_content_review', 'sample_shotcut', 'sample_final_transcript', 'sample_captions', 'sample_web_demo', 'sample_quality_review', 'full_transcript', 'full_outline', 'full_content_review', 'full_shotcut', 'full_final_transcript', 'full_captions', 'full_web_demo', 'complete')]
+    [ValidateSet('sample_prepare', 'sample_outline', 'sample_content_review', 'sample_shotcut', 'sample_ai_edit', 'sample_final_transcript', 'sample_captions', 'sample_web_demo', 'sample_quality_review', 'full_transcript', 'full_outline', 'full_content_review', 'full_shotcut', 'full_final_transcript', 'full_captions', 'full_web_demo', 'complete')]
     [string]$Stage,
     [string]$ItemId,
     [ValidateSet('pending', 'needs_revision', 'accepted', 'resolved')]
@@ -96,7 +96,11 @@ function Read-Manifest {
     if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
         throw "Workflow state does not exist: $script:ManifestPath"
     }
-    return Get-Content -Raw -Encoding utf8 -LiteralPath $script:ManifestPath | ConvertFrom-Json
+    $manifest = Get-Content -Raw -Encoding utf8 -LiteralPath $script:ManifestPath | ConvertFrom-Json
+    if (-not (Get-ObjectProperty $manifest.gates 'ai_audio_export')) {
+        Set-ObjectProperty $manifest.gates 'ai_audio_export' ([pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} })
+    }
+    return $manifest
 }
 
 function Get-AbsoluteArtifactPath {
@@ -273,13 +277,19 @@ function Assert-AudioMatchesArtifact {
     }
 }
 
+function Test-SampleExportApproved {
+    param([object]$Manifest)
+    return ($Manifest.gates.shotcut_export.status -eq 'approved' -or
+            (Get-ObjectProperty $Manifest.gates 'ai_audio_export').status -eq 'approved')
+}
+
 function Assert-ApprovedAudioInput {
     param([object]$Manifest, [string]$InputAudioPath)
     if (-not $InputAudioPath) { throw '-InputAudio is required for audio approval checks.' }
     switch ([string]$Manifest.stage) {
         'sample_final_transcript' {
-            if ($Manifest.gates.content_review.status -ne 'approved' -or $Manifest.gates.shotcut_export.status -ne 'approved') {
-                throw 'Sample final-audio transcription requires current content_review and shotcut_export approvals.'
+            if ($Manifest.gates.content_review.status -ne 'approved' -or -not (Test-SampleExportApproved $Manifest)) {
+                throw 'Sample final-audio transcription requires current content_review and a sample audio export approval.'
             }
             Assert-AudioMatchesArtifact $Manifest $InputAudioPath 'sample-final-audio'
             return
@@ -331,6 +341,7 @@ function Invoke-WorkflowAction {
                 gates = [pscustomobject]@{
                     content_review = [pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{}; latest_review_artifact_id = $null }
                     shotcut_export = [pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} }
+                    ai_audio_export = [pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} }
                     sample_acceptance = [pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{} }
                     full_content_review = [pscustomobject]@{ status = 'pending'; depends_on = @(); input_hashes = [pscustomobject]@{}; latest_review_artifact_id = $null }
                 }
@@ -387,7 +398,7 @@ function Invoke-WorkflowAction {
             if ($changed -or $revalidatedStale) {
                 Invalidate-Dependents $manifest @($ArtifactId)
                 if ($ArtifactId -match '^sample-content-review') {
-                    foreach ($gateId in @('content_review', 'full_content_review', 'shotcut_export', 'sample_acceptance')) {
+                    foreach ($gateId in @('content_review', 'full_content_review', 'shotcut_export', 'ai_audio_export', 'sample_acceptance')) {
                         $gateState = Get-ObjectProperty $manifest.gates $gateId
                         if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                     }
@@ -412,11 +423,11 @@ function Invoke-WorkflowAction {
                     throw 'Full-recording stages require a current sample_acceptance approval.'
                 }
             }
-            if ($Stage -match '^sample_(shotcut|final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.content_review.status -ne 'approved') {
+            if ($Stage -match '^sample_(shotcut|ai_edit|final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.content_review.status -ne 'approved') {
                 throw 'Sample audio editing requires an approved, current content_review gate.'
             }
-            if ($Stage -match '^sample_(final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.shotcut_export.status -ne 'approved') {
-                throw 'This stage requires an approved Shotcut audio export.'
+            if ($Stage -match '^sample_(final_transcript|captions|web_demo|quality_review)$' -and -not (Test-SampleExportApproved $manifest)) {
+                throw 'This stage requires an approved sample audio export.'
             }
             if ($Stage -match '^sample_(final_transcript|captions|web_demo|quality_review)$' -and $manifest.gates.content_review.status -ne 'approved') {
                 throw 'This stage requires a current content_review approval.'
@@ -451,7 +462,7 @@ function Invoke-WorkflowAction {
             }
             Set-ObjectProperty $manifest.review_items $ItemId $reviewItem
             if ($changed) {
-                foreach ($gateId in @('content_review', 'full_content_review', 'shotcut_export', 'sample_acceptance')) {
+                foreach ($gateId in @('content_review', 'full_content_review', 'shotcut_export', 'ai_audio_export', 'sample_acceptance')) {
                     $gateState = Get-ObjectProperty $manifest.gates $gateId
                     if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                 }
@@ -505,11 +516,21 @@ function Invoke-WorkflowAction {
                         throw 'Shotcut export approval is only valid during sample_shotcut or full_shotcut.'
                     }
                 }
+                if ($Gate -eq 'ai_audio_export') {
+                    if ($manifest.stage -ne 'sample_ai_edit') {
+                        throw 'AI sample audio export is only valid during sample_ai_edit.'
+                    }
+                    if ($manifest.gates.content_review.status -ne 'approved') {
+                        throw 'AI sample audio export requires an approved content_review gate.'
+                    }
+                    Assert-RequiredArtifactIds $DependsOn @($manifest.gates.content_review.depends_on) 'ai_audio_export'
+                    Assert-RequiredArtifactIds $DependsOn @('sample-cut-map', 'sample-final-audio') 'ai_audio_export'
+                }
                 if ($Gate -eq 'sample_acceptance' -and $manifest.gates.content_review.status -ne 'approved') {
                     throw 'Sample acceptance requires an approved content_review gate.'
                 }
-                if ($Gate -eq 'sample_acceptance' -and $manifest.gates.shotcut_export.status -ne 'approved') {
-                    throw 'Sample acceptance requires an approved shotcut_export gate.'
+                if ($Gate -eq 'sample_acceptance' -and -not (Test-SampleExportApproved $manifest)) {
+                    throw 'Sample acceptance requires an approved sample audio export gate.'
                 }
                 if ($Gate -eq 'sample_acceptance') {
                     if ($manifest.stage -ne 'sample_quality_review') {
@@ -523,13 +544,13 @@ function Invoke-WorkflowAction {
                         'sample-quality-review'
                     ) 'sample_acceptance'
                     Assert-RequiredArtifactIds $DependsOn @($manifest.gates.content_review.depends_on) 'sample_acceptance'
-                    $shotcutGate = $manifest.gates.shotcut_export
-                    Assert-RequiredArtifactIds $DependsOn @($shotcutGate.depends_on) 'sample_acceptance'
-                    if ('sample-final-audio' -notin @($shotcutGate.depends_on)) {
-                        throw 'The current Shotcut export approval must reference sample-final-audio.'
+                    $exportGate = if ($manifest.gates.ai_audio_export.status -eq 'approved') { $manifest.gates.ai_audio_export } else { $manifest.gates.shotcut_export }
+                    Assert-RequiredArtifactIds $DependsOn @($exportGate.depends_on) 'sample_acceptance'
+                    if ('sample-final-audio' -notin @($exportGate.depends_on)) {
+                        throw 'The current sample export approval must reference sample-final-audio.'
                     }
-                    if ($shotcutGate.input_hashes.'sample-final-audio' -ne (Get-Artifact $manifest 'sample-final-audio').sha256) {
-                        throw 'The Shotcut export approval is stale for the current sample-final-audio.'
+                    if ($exportGate.input_hashes.'sample-final-audio' -ne (Get-Artifact $manifest 'sample-final-audio').sha256) {
+                        throw 'The sample export approval is stale for the current sample-final-audio.'
                     }
                 }
             }
@@ -547,7 +568,7 @@ function Invoke-WorkflowAction {
                 updated_at = [DateTime]::UtcNow.ToString('o')
             })
             if ($Decision -ne 'approved' -and $Gate -eq 'content_review') {
-                foreach ($gateId in @('shotcut_export', 'sample_acceptance')) {
+                foreach ($gateId in @('shotcut_export', 'ai_audio_export', 'sample_acceptance')) {
                     $gateState = Get-ObjectProperty $manifest.gates $gateId
                     if ($gateState -and $gateState.status -eq 'approved') { $gateState.status = 'stale' }
                 }

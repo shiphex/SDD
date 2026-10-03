@@ -1,7 +1,7 @@
 ---
 name: audio-to-srt
 description: Use when generating a verbatim transcript or SRT subtitles from local audio with Qwen3-ASR, or when realigning subtitles after an audio edit. Uses Qwen3-ForcedAligner timestamps and UV-managed Python dependencies.
-version: 0.3.0
+version: 0.3.1
 ---
 
 # Audio to SRT with Qwen3-ASR
@@ -29,6 +29,8 @@ From the repository root in PowerShell:
 The first invocation resolves the locked Python 3.12 environment and downloads the ASR and aligner weights into `.local/video/pilot/models/huggingface`. Keep these files local; do not commit recordings, transcripts, alignment JSON, or model weights.
 
 For a different workflow run, use `prepare-pilot.ps1 -RunId <run-id> -InputAudio <path>`; it stores that run's sample, UV environment, and model cache under `.local/video/<run-id>/`. For direct calls to the transcription wrapper, set `$env:VIDEO_RUN_ID` to the same run ID first. For tracks longer than 180.05 seconds, the CLI asks the workflow PowerShell helper to reconcile hashes and check that the input path and hash match the artifact allowed at the current stage. A longer sample export is permitted only in `sample_final_transcript` when it matches `sample-final-audio`; full source transcription requires `full_transcript` and the registered `source-audio`; final full-audio alignment requires `full_final_transcript` and `full-final-audio`.
+
+The length check is a safeguard for the normal workflow, not proof that a short file came from the authorized sample. Do not split the full recording into short files before `sample_acceptance` is explicitly approved.
 
 To regenerate the lock after intentionally changing dependencies, run `uv lock --project .agent/skills/audio-to-srt`. Normal setup uses `uv sync --project .agent/skills/audio-to-srt --locked` through the PowerShell entrypoint.
 
@@ -72,9 +74,9 @@ The aligner processes each supplied section against the corresponding audio rang
 
 ## Editing and realignment
 
-For an audio edit, preserve the source transcript and its original timestamps as `source.srt`. Use Shotcut to review and finalize the audio. Then run this converter again on the exported final audio and save the output as `final.srt`. Never reuse source timestamps after a cut or pickup recording.
+For an audio edit, preserve the source transcript and its original timestamps as `source.srt`. Finalize the audio through the route authorized for the current run in `video-workflow` (Shotcut or an expressly authorized AI sample edit). Then run this converter again on the exported final audio and save the output as `final.srt`. Never reuse source timestamps after a cut or pickup recording.
 
-The converter does not remove silence, change recognized words, correct factual claims, or produce pickup instructions. Those are review decisions. Keep the original recording unchanged and ask a human to approve every proposed cut or wording change.
+The converter does not remove silence, change recognized words, correct factual claims, or produce pickup instructions. Keep the original recording unchanged. Follow the current run's `video-workflow` authorization for cut review: the default Shotcut route uses the recorder's decisions; an authorized AI sample route may use one consolidated video review. Wording changes and pickup lines still require the recorder's decision.
 
 ## Dependencies and sources
 
